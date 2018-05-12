@@ -22,6 +22,7 @@
 #include <apt/log.h>
 #include <apt/rand.h>
 #include <apt/ArgList.h>
+#include <apt/Image.h>
 #include <apt/Quadtree.h>
 
 #include <imgui/imgui.h>
@@ -750,7 +751,7 @@ public:
 
 			{	PROFILER_MARKER("Readback");
 
-				FRM_PIXELSTOREI(GL_PACK_ALIGNMENT, 1);
+				FRM_GL_PIXELSTOREI(GL_PACK_ALIGNMENT, 1);
 				APT_ONCE { glAssert(glGetTextureImage(txNoise->getHandle(), txNoise->getMipCount() - 1, GL_RG, GL_FLOAT, sizeof(vec2), &firstRead.x)); }
 				glAssert(glGetTextureImage(txNoise->getHandle(), txNoise->getMipCount() - 1, GL_RG, GL_FLOAT, sizeof(vec2), &thisRead.x));
 				ImGui::Value("firstRead", firstRead);
@@ -844,6 +845,56 @@ public:
 					return true;
 				});
 				
+			ImGui::TreePop();
+		}
+
+		ImGui::SetNextTreeNodeOpen(true, ImGuiCond_Once);
+		if (ImGui::TreeNode("Block Compression")) {
+			static Texture* txSrc;
+			static Buffer*  bfDst; // can't write a a BC texture directly
+			static Texture* txDst;
+			static Texture* txCmp;
+			static Shader*  shCompressBc1;
+
+			APT_ONCE {
+				txSrc = Texture::Create("textures/bc1test.png");
+				txCmp = Texture::Create("textures/bc1test.dds");
+
+
+				uint32 bfSize = (txSrc->getWidth()/4 * txSrc->getHeight()/4) * 8; // 4x4 blocks, 8 bytes per block
+				bfDst = Buffer::Create(GL_SHADER_STORAGE_BUFFER, bfSize, GL_DYNAMIC_STORAGE_BIT);
+				bfDst->setName("_bfDst");
+
+				txDst = Texture::Create2d(txSrc->getWidth(), txSrc->getHeight(), GL_COMPRESSED_RGB_S3TC_DXT1_EXT);
+				txDst->setName("txDst");
+				txDst->setFilter(GL_NEAREST);
+				txDst->setWrap(GL_CLAMP_TO_BORDER);
+
+				shCompressBc1 = Shader::CreateCs("shaders/BlockCompress_cs.glsl", 4, 4);
+			}
+
+			if (shCompressBc1->getState() != Shader::State_Error) {
+				PROFILER_MARKER("BC1 Compression");
+
+				{	PROFILER_MARKER("Compress");
+					ctx->setShader(shCompressBc1);
+					ctx->bindTexture("txSrc", txSrc);
+					ctx->bindBuffer("_bfDst", bfDst);
+					auto dispatchCount = shCompressBc1->getDispatchSize(txSrc->getWidth() / 4, txSrc->getHeight() / 4);
+					ctx->dispatch(txDst);
+				}
+
+
+				{	PROFILER_MARKER("Copy");
+					glAssert(glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT));
+					FRM_GL_PIXELSTOREI(GL_UNPACK_ALIGNMENT, 1);
+					glAssert(glBindBuffer(GL_PIXEL_UNPACK_BUFFER, bfDst->getHandle()));
+					glAssert(glCompressedTextureSubImage2D(txDst->getHandle(), 0, 0,0, txDst->getWidth(),txDst->getHeight(), txDst->getFormat(), bfDst->getSize(), 0));
+					glAssert(glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0));
+				}
+			}
+
+
 			ImGui::TreePop();
 		}
 
