@@ -850,16 +850,25 @@ public:
 
 		ImGui::SetNextTreeNodeOpen(true, ImGuiCond_Once);
 		if (ImGui::TreeNode("Block Compression")) {
-			static Texture* txSrc;
-			static Buffer*  bfDst; // can't write a a BC texture directly
-			static Texture* txDst;
-			static Texture* txCmp;
-			static Shader*  shCompressBc1;
+			static Texture*     txSrc;
+			static Buffer*      bfDst; // can't write a a BC texture directly
+			static Texture*     txDst;
+			static Texture*     txCmp;
+			static TextureView  txViewSrc;
+			static TextureView  txViewDst;
+			static TextureView  txViewCmp;
+			static Shader*      shCompressBc1;
 
 			APT_ONCE {
 				txSrc = Texture::Create("textures/bc1test.png");
-				txCmp = Texture::Create("textures/bc1test.dds");
+				txSrc->setFilter(GL_NEAREST);
+				txSrc->setWrap(GL_CLAMP_TO_BORDER);
+				txViewSrc = TextureView(txSrc);
 
+				txCmp = Texture::Create("textures/bc1test.dds");
+				txCmp->setFilter(GL_NEAREST);
+				txCmp->setWrap(GL_CLAMP_TO_BORDER);
+				txViewCmp = TextureView(txCmp);
 
 				uint32 bfSize = (txSrc->getWidth()/4 * txSrc->getHeight()/4) * 8; // 4x4 blocks, 8 bytes per block
 				bfDst = Buffer::Create(GL_SHADER_STORAGE_BUFFER, bfSize, GL_DYNAMIC_STORAGE_BIT);
@@ -869,6 +878,7 @@ public:
 				txDst->setName("txDst");
 				txDst->setFilter(GL_NEAREST);
 				txDst->setWrap(GL_CLAMP_TO_BORDER);
+				txViewDst = TextureView(txDst);
 
 				shCompressBc1 = Shader::CreateCs("shaders/BlockCompress_cs.glsl", 4, 4);
 			}
@@ -894,6 +904,13 @@ public:
 				}
 			}
 
+
+			float thumbSize = ImGui::GetContentRegionAvailWidth() * 0.28f;
+			ImGui::ImageButton((ImTextureID)&txViewSrc, ImVec2(thumbSize, thumbSize), ImVec2(0, 1), ImVec2(1, 0), 1, ImColor(0.5f, 0.5f, 0.5f));
+			ImGui::SameLine();
+			ImGui::ImageButton((ImTextureID)&txViewCmp, ImVec2(thumbSize, thumbSize), ImVec2(0, 1), ImVec2(1, 0), 1, ImColor(0.5f, 0.5f, 0.5f));
+			ImGui::SameLine();
+			ImGui::ImageButton((ImTextureID)&txViewDst, ImVec2(thumbSize, thumbSize), ImVec2(0, 1), ImVec2(1, 0), 1, ImColor(0.5f, 0.5f, 0.5f));
 
 			ImGui::TreePop();
 		}

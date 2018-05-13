@@ -11,7 +11,7 @@
 	},
 	"AppSample": {
 		"ShowMenu": true,
-		"ShowPropertyEditor": true,
+		"ShowPropertyEditor": false,
 		"ShowProfiler": false,
 		"ShowShaderViewer": false,
 		"VsyncMode": 0,
