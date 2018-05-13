@@ -1,4 +1,5 @@
 /*	http://www.reedbeta.com/blog/understanding-bcn-texture-compression-formats/
+	http://sjbrown.co.uk/2006/01/19/dxt-compression-techniques/
 	http://fileadmin.cs.lth.se/cs/education/edan35/lectures/l8-texcomp.pdf
 	http://developer.download.nvidia.com/compute/cuda/1.1-Beta/x86_website/projects/dxtc/doc/cuda_dxtc.pdf
 	https://pdfs.semanticscholar.org/presentation/9410/6e86ee70426b81b7f64d392a068c5ebda06a.pdf
@@ -14,7 +15,7 @@ layout(std430) restrict writeonly buffer _bfDst
 	uvec2 bfDst[];
 };
 
-uint Pack_RGB_565(in vec3 _rgb)
+uint Pack_RGB565(in vec3 _rgb)
 {
 	uint ret = 0;
 	ret = bitfieldInsert(ret, uint(_rgb.r * 31.0), 11, 5);
@@ -48,10 +49,11 @@ void main()
  // find endpoints
 	vec3 ep0 = vec3(1.0);
 	vec3 ep1 = vec3(0.0);
-	#if 0
+	#if 1
 	 // fast, low-quality: find the color space bounding box, endpoints are min/max
 	 // \todo atomicMin/atomicMax?
-		for (int i = 0; i < 16; ++i) {
+	 	ep0 = ep1 = s_srcBlock[0];
+		for (int i = 1; i < 16; ++i) {
 			ep0 = min(ep0, s_srcBlock[i]);
 			ep1 = max(ep1, s_srcBlock[i]);
 		}
@@ -78,11 +80,11 @@ void main()
 	#endif
 	
  // export endpoints (type 1)
-	uint ep0i = Pack_RGB_565(ep0);	
-	uint ep1i = Pack_RGB_565(ep1);
+	uint ep0i = Pack_RGB565(ep0);	
+	uint ep1i = Pack_RGB565(ep1);
 	dst[0] = 0;
 	if (ep0i > ep1i) {
-		ep0i = ep1i = Pack_RGB_565(vec3(1,0,1)); // \todo for now reversed blocks are shown as pink
+		ep0i = ep1i = Pack_RGB565(vec3(1,0,1)); // \todo for now reversed blocks are shown as pink
 		/*dst[0] = bitfieldInsert(dst[0], ep0i, 0,  16);
 		dst[0] = bitfieldInsert(dst[0], ep1i, 16, 16);
 		vec3 tmp = ep1;
@@ -99,15 +101,15 @@ void main()
 	palette[1] = ep0;
 	palette[2] = 2.0/3.0 * palette[0] + 1.0/3.0 * palette[1];
 	palette[3] = 1.0/3.0 * palette[0] + 2.0/3.0 * palette[1];
-	
+
 	int idx = 0;
 	float minErr = 999.0;
- // \todo see Nvidia reference for simplifying this
-	for (int j = 0; j < 4; ++j) {
-		float err = length2(s_srcBlock[gl_LocalInvocationIndex] - palette[j]);
+ // \todo see Nvidia reference for simplifying this ?
+	for (int i = 0; i < 4; ++i) {
+		float err = length2(s_srcBlock[gl_LocalInvocationIndex] - palette[i]);
 		if (err < minErr) {
 			minErr = err;
-			idx = j;
+			idx = i;
 		}
 		s_dstIndices[gl_LocalInvocationIndex] = idx;
 	}

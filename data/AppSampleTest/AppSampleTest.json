@@ -10,7 +10,7 @@
 		"Anim Path": "models/md5/bob_lamp_update.md5anim"
 	},
 	"AppSample": {
-		"ShowMenu": true,
+		"ShowMenu": false,
 		"ShowPropertyEditor": false,
 		"ShowProfiler": false,
 		"ShowShaderViewer": false,
@@ -28,7 +28,7 @@
 	},
 	"AppSample3d": {
 		"Scene Path": "Scene.json",
-		"Show Helpers": false,
+		"Show Helpers": true,
 		"Show Scene Editor": false
 	},
 	"DepthTest": {

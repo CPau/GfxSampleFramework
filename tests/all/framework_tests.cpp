@@ -859,13 +859,24 @@ public:
 			static TextureView  txViewCmp;
 			static Shader*      shCompressBc1;
 
+
+			#define BcDbg 1
+			#if BcDbg
+				static Buffer*      bfSrc;
+				static Texture*     txDbgSrc;
+				static Texture*     txDbgDst;
+				static TextureView  txViewDbgSrc;
+				static TextureView  txViewDbgDst;
+				static Shader*      shDbgBc1;
+			#endif
+
 			APT_ONCE {
-				txSrc = Texture::Create("textures/bc1test.png");
+				txSrc = Texture::Create("textures/bc1testb.bmp");
 				txSrc->setFilter(GL_NEAREST);
 				txSrc->setWrap(GL_CLAMP_TO_BORDER);
 				txViewSrc = TextureView(txSrc);
 
-				txCmp = Texture::Create("textures/bc1test.dds");
+				txCmp = Texture::Create("textures/bc1testb.dds");
 				txCmp->setFilter(GL_NEAREST);
 				txCmp->setWrap(GL_CLAMP_TO_BORDER);
 				txViewCmp = TextureView(txCmp);
@@ -881,6 +892,30 @@ public:
 				txViewDst = TextureView(txDst);
 
 				shCompressBc1 = Shader::CreateCs("shaders/BlockCompress_cs.glsl", 4, 4);
+
+				#if BcDbg
+					bfSrc = Buffer::Create(GL_SHADER_STORAGE_BUFFER, bfSize, GL_DYNAMIC_STORAGE_BIT);
+					bfSrc->setName("_bfSrc");
+					File f;
+					FileSystem::Read(f, txCmp->getPath());
+					Image img;
+					Image::Read(img, f);
+					bfSrc->setData(img.getRawImageSize(), img.getRawImage());
+
+					txDbgSrc = Texture::Create2d(txSrc->getWidth(), txSrc->getHeight(), GL_RGBA8);
+					txDbgSrc->setName("txDbgSrc");
+					txDbgSrc->setFilter(GL_NEAREST);
+					txDbgSrc->setWrap(GL_CLAMP_TO_BORDER);
+					txViewDbgSrc = TextureView(txDbgSrc);
+
+					txDbgDst = Texture::Create2d(txSrc->getWidth(), txSrc->getHeight(), GL_RGBA8);
+					txDbgDst->setName("txDbgDst");
+					txDbgDst->setFilter(GL_NEAREST);
+					txDbgDst->setWrap(GL_CLAMP_TO_BORDER);
+					txViewDbgDst = TextureView(txDbgDst);
+
+					shDbgBc1 = Shader::CreateCs("shaders/BlockCompressDbg_cs.glsl", 4, 4);
+				#endif
 			}
 
 			if (shCompressBc1->getState() != Shader::State_Error) {
@@ -893,8 +928,7 @@ public:
 					auto dispatchCount = shCompressBc1->getDispatchSize(txSrc->getWidth() / 4, txSrc->getHeight() / 4);
 					ctx->dispatch(txDst);
 				}
-
-
+				
 				{	PROFILER_MARKER("Copy");
 					glAssert(glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT));
 					FRM_GL_PIXELSTOREI(GL_UNPACK_ALIGNMENT, 1);
@@ -903,14 +937,102 @@ public:
 					glAssert(glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0));
 				}
 			}
-
-
+			
 			float thumbSize = ImGui::GetContentRegionAvailWidth() * 0.28f;
 			ImGui::ImageButton((ImTextureID)&txViewSrc, ImVec2(thumbSize, thumbSize), ImVec2(0, 1), ImVec2(1, 0), 1, ImColor(0.5f, 0.5f, 0.5f));
 			ImGui::SameLine();
 			ImGui::ImageButton((ImTextureID)&txViewCmp, ImVec2(thumbSize, thumbSize), ImVec2(0, 1), ImVec2(1, 0), 1, ImColor(0.5f, 0.5f, 0.5f));
 			ImGui::SameLine();
 			ImGui::ImageButton((ImTextureID)&txViewDst, ImVec2(thumbSize, thumbSize), ImVec2(0, 1), ImVec2(1, 0), 1, ImColor(0.5f, 0.5f, 0.5f));
+
+			
+			#if BcDbg
+				ctx->setShader(shDbgBc1);
+				ctx->bindBuffer("_bfDst", bfDst);
+				ctx->bindImage("txDst", txDbgDst, GL_WRITE_ONLY);
+				ctx->dispatch(txDbgDst);
+				glAssert(glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT));
+
+				ctx->setShader(shDbgBc1);
+				ctx->bindBuffer("_bfSrc", bfSrc);
+				ctx->bindImage("txDst", txDbgSrc, GL_WRITE_ONLY);
+				ctx->dispatch(txDbgSrc);
+				glAssert(glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT));
+				
+
+				ImGui::InvisibleButton("###spacing", ImVec2(thumbSize, thumbSize));
+				ImGui::SameLine();
+				ImGui::ImageButton((ImTextureID)&txViewDbgSrc, ImVec2(thumbSize, thumbSize), ImVec2(0, 1), ImVec2(1, 0), 1, ImColor(0.5f, 0.5f, 0.5f));
+				ImGui::SameLine();
+				ImGui::ImageButton((ImTextureID)&txViewDbgDst, ImVec2(thumbSize, thumbSize), ImVec2(0, 1), ImVec2(1, 0), 1, ImColor(0.5f, 0.5f, 0.5f));
+			#endif
+
+			if (ImGui::TreeNode("Covariance Test")) {
+				const int kSampleSize = 512;
+				static vec3 sampleSet[kSampleSize];
+				static mat4 sampleMatrix = identity;
+				Rand<> lcg(1234);
+				for (auto& sample : sampleSet) {
+					sample = Normalize(lcg.get<vec3>(vec3(-1.0f), vec3(1.0f))) * lcg.get<float>(0.0f, 1.0f);
+					sample = TransformPosition(sampleMatrix, sample);
+				}
+
+			 // draw bounding box, point cloud
+				Im3d::PushColor(Im3d::Color_White);
+				Im3d::PushAlpha(0.25f);
+				vec3 bbMin = vec3(FLT_MAX);
+				vec3 bbMax = vec3(-FLT_MAX);
+				for (auto& sample : sampleSet) {
+					Im3d::DrawPoint(sample, 8.0f, Im3d::GetColor());
+					bbMin = Min(bbMin, sample);
+					bbMax = Max(bbMax, sample);
+				}
+				Im3d::DrawAlignedBox(bbMin, bbMax);
+				Im3d::PopColor();
+				Im3d::PopAlpha();
+				
+			 // gizmo, ellipsoid
+				Im3d::PushColor(Im3d::Color_Red);
+				Im3d::PushMatrix(sampleMatrix);
+					Im3d::DrawSphere(vec3(0.0f), 1.0f);
+				Im3d::PopMatrix();
+				Im3d::PopColor();
+				Im3d::Gizmo("sampleMatrix", (float*)&sampleMatrix);
+
+			 // covariance
+				vec3 avg = vec3(0.0f);
+				for (auto& sample : sampleSet) {
+					avg += sample;
+				}
+				avg /= (float)kSampleSize;
+
+				auto cov = [&](int _x, int _y, const vec3& _avg)
+					{
+						float ret = 0.0f;
+						for (auto& sample : sampleSet) {
+							ret += (sample[_x] - _avg[_x]) * (sample[_y] - _avg[_y]);
+						}
+						ret /= (float)kSampleSize;
+						return ret;
+					};
+				float cRR = cov(0, 0, avg);
+				float cRG = cov(0, 1, avg);
+				float cRB = cov(0, 2, avg);
+				float cGG = cov(1, 1, avg);
+				float cGB = cov(1, 2, avg);
+				float cBB = cov(2, 2, avg);
+				mat3  C = mat3(
+					cRR, cRG, cRB,
+					cRG, cGG, cGB,
+					cRB, cGB, cBB
+					);
+
+				ImGui::Value("Mean", avg);
+				ImGui::Value("C", C);
+
+
+				ImGui::TreePop();
+			}
 
 			ImGui::TreePop();
 		}
