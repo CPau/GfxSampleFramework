@@ -23,6 +23,14 @@ uint Pack_RGB565(in vec3 _rgb)
 	ret = bitfieldInsert(ret, uint(_rgb.b * 31.0), 0,  5);
 	return ret;
 }
+vec3 Unpack_RGB565(in uint _565)
+{
+	vec3 ret;
+	ret.r = float(bitfieldExtract(_565, 11, 5)) / 31.0;
+	ret.g = float(bitfieldExtract(_565, 5,  6)) / 63.0;
+	ret.b = float(bitfieldExtract(_565, 0,  5)) / 31.0;
+	return ret;
+}
 
 shared vec3 s_srcBlock[16];   // raw block texels
 shared uint s_dstIndices[16]; // per-texel palette indices
@@ -101,6 +109,13 @@ void main()
 	palette[1] = ep0;
 	palette[2] = 2.0/3.0 * palette[0] + 1.0/3.0 * palette[1];
 	palette[3] = 1.0/3.0 * palette[0] + 2.0/3.0 * palette[1];
+	#if 0
+	 // pack/unpack the palette values = quantize palette to the final result
+	 // it's not clear that this significantly improves the quality
+		for (int i = 0; i < 4; ++i) {
+			palette[i] = Unpack_RGB565(Pack_RGB565(palette[i]));
+		}
+	#endif
 
 	int idx = 0;
 	float minErr = 999.0;
