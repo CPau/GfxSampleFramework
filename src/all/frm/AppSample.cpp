@@ -51,6 +51,7 @@ static void FileChangeNotification(const char* _path, FileSystem::FileAction _ac
 	 // shader
 		if (FileSystem::Matches("*.glsl", _path)) {
 			//APT_LOG_DBG("Reload shader '%s'", _path);
+			Time::Sleep(50); // \hack sometimes reloading the file fails if another process didn't finish writing to it
 			Shader::FileModified(_path);
 			return;
 		}
@@ -58,6 +59,7 @@ static void FileChangeNotification(const char* _path, FileSystem::FileAction _ac
 	 // texture
 		if (FileSystem::MatchesMulti({"*.bmp", "*.dds", "*.exr", "*.hdr", "*.png", "*.tga", "*.jpg", "*.gif", "*.psd"}, _path)) {
 			//APT_LOG_DBG("Reload texture '%s'", _path);
+			Time::Sleep(50); // \hack sometimes reloading the file fails if another process didn't finish writing to it
 			Texture::FileModified(_path);
 			return;
 		}
