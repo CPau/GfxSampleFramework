@@ -968,7 +968,7 @@ public:
 			#endif
 
 			if (ImGui::TreeNode("Covariance Test")) {
-				const int kSampleSize = 512;
+				const int kSampleSize = 16;
 				static vec3 sampleSet[kSampleSize];
 				static mat4 sampleMatrix = identity;
 				Rand<> lcg(1234);
@@ -1026,9 +1026,52 @@ public:
 					cRG, cGG, cGB,
 					cRB, cGB, cBB
 					);
+				vec3  PA;
+
+			 // from crunch https://github.com/Unity-Technologies/crunch/blob/master/crnlib/crn_dxt1.cpp
+				vec3 vf = vec3(0.9f, 1.0f, 0.7f);
+				for (int i = 0; i < 8; ++i) {
+					float r = dot(vf, C[0]);
+					float g = dot(vf, C[1]);
+					float b = dot(vf, C[2]);
+					
+					float m = Max(Abs(r), Max(Abs(g), Abs(b)));
+					if (m > 1e-7) {
+					   m = 1.0f / m;
+					   r *= m;
+					   g *= m;
+					   b *= m;
+					}
+					
+					float delta = (vf.x - r) * (vf.x - r) + (vf.y - g) * (vf.y - g) + (vf.z - b) * (vf.z - b);
+					
+					vf = vec3(r, g, b);					
+					if ((i > 2) && (delta < 1e-7f)) {
+					   break;
+					}
+				}
+				float vflen = length2(vf);
+				if (vflen < 1e-7f) {
+					PA = vec3(1.0f, 0.0f, 0.0f);
+				} else {
+				   vflen = 1.0f / sqrt(vflen);
+				   vf *= vflen;
+				   PA = vf;
+				}
+
+				Im3d::PushColor(Im3d::Color_Magenta);				
+				Im3d::PushSize(8.0f);
+				Im3d::PushMatrix();
+					vec3 t = GetTranslation(sampleMatrix);
+					Im3d::Translate(t.x, t.y, t.z);
+					Im3d::DrawArrow(vec3(0.0f), PA);
+				Im3d::PopMatrix();
+				Im3d::PopSize();
+				Im3d::PopColor();
 
 				ImGui::Value("Mean", avg);
 				ImGui::Value("C", C);
+				ImGui::Value("PA", PA);
 
 
 				ImGui::TreePop();

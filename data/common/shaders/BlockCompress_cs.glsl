@@ -57,7 +57,7 @@ void main()
  // find endpoints
 	vec3 ep0 = vec3(1.0);
 	vec3 ep1 = vec3(0.0);
-	#if 1
+	#if 0
 	 // fast, low-quality: find the color space bounding box, endpoints are min/max
 	 // \todo atomicMin/atomicMax?
 	 	ep0 = ep1 = s_srcBlock[0];
@@ -85,6 +85,37 @@ void main()
 			cRG, cGG, cGB,
 			cRB, cGB, cBB
 			);
+		
+		vec3 vf = vec3(0.9, 1.0, 0.7);
+		for (int i = 0; i < 16; ++i) {
+			float r = dot(vf, C[0]);
+			float g = dot(vf, C[1]);
+			float b = dot(vf, C[2]);
+			
+			float m = max(abs(r), max(abs(g), abs(b)));
+			if (m > 1e-7) {
+			   m = 1.0 / m;
+			   r *= m;
+			   g *= m;
+			   b *= m;
+			}
+			
+			float delta = (vf.x - r) * (vf.x - r) + (vf.y - g) * (vf.y - g) + (vf.z - b) * (vf.z - b);
+			
+			vf = vec3(r, g, b);					
+			if ((i > 2) && (delta < 1e-7)) {
+			   break;
+			}
+		}
+		float vflen = length2(vf);
+		if (vflen < 1e-7) {
+			vf = vec3(0.2837149, 0.9540631, 0.096277453);
+		} else {
+		   vf /= sqrt(vflen);
+		}
+
+		ep0 = saturate(avg - vf * 0.1);
+		ep1 = saturate(avg + vf * 0.1);
 	#endif
 	
  // export endpoints (type 1)
@@ -109,8 +140,8 @@ void main()
 	palette[1] = ep0;
 	palette[2] = 2.0/3.0 * palette[0] + 1.0/3.0 * palette[1];
 	palette[3] = 1.0/3.0 * palette[0] + 2.0/3.0 * palette[1];
-	#if 0
-	 // pack/unpack the palette values = quantize palette to the final result
+	#if 1
+	 // pack/unpack the palette values = quantize palette so that texel indices are generated from the final result
 	 // it's not clear that this significantly improves the quality
 		for (int i = 0; i < 4; ++i) {
 			palette[i] = Unpack_RGB565(Pack_RGB565(palette[i]));
