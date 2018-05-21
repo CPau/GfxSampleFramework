@@ -44,8 +44,18 @@ static int   kStatusBarFlags;
 
 *******************************************************************************/
 
-static void FileChangeNotification(const char* _path, FileSystem::FileAction _action)
+void FileChangeNotification(const char* _path, FileSystem::FileAction _action)
 {
+	bool enableAutoReload = true;
+	if (g_Current) {
+		auto prop = g_Current->getProperties().findProperty("EnableAutoReload");
+		APT_STRICT_ASSERT(prop);
+		enableAutoReload = *(prop->asBool());
+	}
+	if (!enableAutoReload) {
+		return;
+	}
+
  // some applications (e.g. Photoshop) write to a temporary file and then do a delete/rename, hence we need to check both _Modified and _Created actions
 	if (_action == FileSystem::FileAction_Modified || _action == FileSystem::FileAction_Created) {
 	 // shader
@@ -307,6 +317,7 @@ AppSample::AppSample(const char* _name)
 	propGroupAppSample.addInt2 ("Resolution",            ivec2(-1),      1,      32768,                       nullptr);
 	propGroupAppSample.addInt2 ("WindowSize",            ivec2(-1),      1,      32768,                       nullptr);
 	propGroupAppSample.addInt  ("VsyncMode",             0,              0,      GlContext::Vsync_On,         &m_vsyncMode);
+	propGroupAppSample.addBool ("EnableAutoReload",      true,                                                &m_enableAutoReload);
 	propGroupAppSample.addBool ("ShowMenu",              false,                                               &m_showMenu);
 	propGroupAppSample.addBool ("ShowLog",               false,                                               &m_showLog);
 	propGroupAppSample.addBool ("ShowLogNotifications",  false,                                               &m_showLogNotifications);

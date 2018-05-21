@@ -55,6 +55,7 @@ protected:
 	ivec2  m_resolution;
 	ivec2  m_windowSize;
 	int    m_vsyncMode;
+	bool   m_enableAutoReload;
 	bool   m_showMenu;
 	bool   m_showLog;
 	bool   m_showLogNotifications;
