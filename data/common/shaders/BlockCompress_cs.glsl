@@ -5,6 +5,12 @@
 	https://pdfs.semanticscholar.org/presentation/9410/6e86ee70426b81b7f64d392a068c5ebda06a.pdf
 	http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.215.7942&rep=rep1&type=pdf
 	http://fileadmin.cs.lth.se/graphics/research/papers/gputc2006/thesis.pdf
+
+	\todo
+	- Fast path for solid color blocks?
+
+	notes:
+	- The HQ implementation is basically a copy of stb_dxt but without the refinement step
 */
 #include "shaders/def.glsl"
 
@@ -69,11 +75,16 @@ void main()
 	 // slow, high-quality: use principal component analysis
 	 // \todo build the covariance matrix via parallel reduction
 	 // http://www.visiondummy.com/2014/04/geometric-interpretation-covariance-matrix/
-	 	vec3 avg = vec3(0.0);
-		for (int i = 0; i < 16; ++i) {
+		vec3 avg = s_srcBlock[0];
+	 	ep0 = ep1 = s_srcBlock[0];
+		for (int i = 1; i < 16; ++i) {
+			ep0  = min(ep0, s_srcBlock[i]);
+			ep1  = max(ep1, s_srcBlock[i]);
 			avg += s_srcBlock[i];
 		}
 		avg *= 1.0/16.0;
+
+	 // generate covariance matrix
 		float cRR = cov(0, 0, avg);
 		float cRG = cov(0, 1, avg);
 		float cRB = cov(0, 2, avg);
@@ -85,37 +96,33 @@ void main()
 			cRG, cGG, cGB,
 			cRB, cGB, cBB
 			);
-		
-		vec3 vf = vec3(0.9, 1.0, 0.7);
+
+	 // find endpoints
+		vec3 vf = abs(ep1 - ep0);
 		for (int i = 0; i < 16; ++i) {
-			float r = dot(vf, C[0]);
-			float g = dot(vf, C[1]);
-			float b = dot(vf, C[2]);
-			
-			float m = max(abs(r), max(abs(g), abs(b)));
-			if (m > 1e-7) {
-			   m = 1.0 / m;
-			   r *= m;
-			   g *= m;
-			   b *= m;
-			}
-			
-			float delta = (vf.x - r) * (vf.x - r) + (vf.y - g) * (vf.y - g) + (vf.z - b) * (vf.z - b);
-			
-			vf = vec3(r, g, b);					
-			if ((i > 2) && (delta < 1e-7)) {
-			   break;
-			}
+			float x = dot(vf, C[0]);
+			float y = dot(vf, C[1]);
+			float z = dot(vf, C[2]);
+			vf = vec3(x, y, z);
 		}
 		float vflen = length2(vf);
-		if (vflen < 1e-7) {
-			vf = vec3(0.2837149, 0.9540631, 0.096277453);
-		} else {
-		   vf /= sqrt(vflen);
+		if (vflen > 1e-4) {
+			vf /= sqrt(vflen);
 		}
 
-		ep0 = saturate(avg - vf * 0.1);
-		ep1 = saturate(avg + vf * 0.1);
+		float mind, maxd;
+		mind = maxd = dot(vf, s_srcBlock[0]);
+		for (int i = 1; i < 16; ++i) {
+			float d = dot(vf, s_srcBlock[i]);
+			if (d < mind) {
+				ep0 = s_srcBlock[i];
+				mind = d;
+			}
+			if (d > maxd) {
+				ep1 = s_srcBlock[i];
+				maxd = d;
+			}
+		}
 	#endif
 	
  // export endpoints (type 1)
@@ -123,12 +130,11 @@ void main()
 	uint ep1i = Pack_RGB565(ep1);
 	dst[0] = 0;
 	if (ep0i > ep1i) {
-		ep0i = ep1i = Pack_RGB565(vec3(1,0,1)); // \todo for now reversed blocks are shown as pink
-		/*dst[0] = bitfieldInsert(dst[0], ep0i, 0,  16);
+		dst[0] = bitfieldInsert(dst[0], ep0i, 0,  16);
 		dst[0] = bitfieldInsert(dst[0], ep1i, 16, 16);
 		vec3 tmp = ep1;
 		ep1 = ep0;
-		ep0 = tmp;*/
+		ep0 = tmp;
 	} else {
 		dst[0] = bitfieldInsert(dst[0], ep1i, 0,  16);
 		dst[0] = bitfieldInsert(dst[0], ep0i, 16, 16);
@@ -148,17 +154,31 @@ void main()
 		}
 	#endif
 
-	int idx = 0;
-	float minErr = 999.0;
- // \todo see Nvidia reference for simplifying this ?
-	for (int i = 0; i < 4; ++i) {
-		float err = length2(s_srcBlock[gl_LocalInvocationIndex] - palette[i]);
-		if (err < minErr) {
-			minErr = err;
-			idx = i;
+	#if 0
+	 // euclidean distance
+		int idx = 0;
+		float minErr = 999.0;
+		for (int i = 0; i < 4; ++i) {
+			float err = length2(s_srcBlock[gl_LocalInvocationIndex] - palette[i]);
+			if (err < minErr) {
+				minErr = err;
+				idx = i;
+			}
+			s_dstIndices[gl_LocalInvocationIndex] = idx;
 		}
-		s_dstIndices[gl_LocalInvocationIndex] = idx;
+	#else
+	{
+	 // project onto ep1 - ep0, quantize to nearest intersection
+	 // \todo doesn't work?
+	 	vec3 src = s_srcBlock[gl_LocalInvocationIndex];
+		vec3 d = ep1 - ep0;
+		float dlen = length(d); 
+		//d /= dlen;
+		vec3 p = dot(src, d) / length2(d) * d;
+		uvec4 idxMap = uvec4(0, 2, 3, 1);
+		s_dstIndices[gl_LocalInvocationIndex] = idxMap[uint(p / dlen * 4.0)];
 	}
+	#endif
 	groupMemoryBarrier();
 
  // final
