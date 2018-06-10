@@ -871,12 +871,12 @@ public:
 			#endif
 
 			APT_ONCE {
-				txSrc = Texture::Create("textures/bc1testb.bmp");
+				txSrc = Texture::Create("textures/baboon.png");
 				txSrc->setFilter(GL_NEAREST);
 				txSrc->setWrap(GL_CLAMP_TO_BORDER);
 				txViewSrc = TextureView(txSrc);
 
-				txCmp = Texture::Create("textures/bc1testb.dds");
+				txCmp = Texture::Create("textures/baboon.dds");
 				txCmp->setFilter(GL_NEAREST);
 				txCmp->setWrap(GL_CLAMP_TO_BORDER);
 				txViewCmp = TextureView(txCmp);
@@ -979,17 +979,14 @@ public:
 
 			 // draw bounding box, point cloud
 				Im3d::PushColor(Im3d::Color_White);
-				Im3d::PushAlpha(0.25f);
 				vec3 bbMin = vec3(FLT_MAX);
 				vec3 bbMax = vec3(-FLT_MAX);
 				for (auto& sample : sampleSet) {
-					Im3d::DrawPoint(sample, 8.0f, Im3d::GetColor());
 					bbMin = Min(bbMin, sample);
 					bbMax = Max(bbMax, sample);
 				}
 				Im3d::DrawAlignedBox(bbMin, bbMax);
 				Im3d::PopColor();
-				Im3d::PopAlpha();
 				
 			 // gizmo, ellipsoid
 				Im3d::PushColor(Im3d::Color_Red);
@@ -1059,7 +1056,33 @@ public:
 				   PA = vf;
 				}
 
-				Im3d::PushColor(Im3d::Color_Magenta);				
+				vec3 ep0 = bbMin;
+				vec3 ep1 = bbMax;
+				for (auto& sample : sampleSet) 
+				{
+					vec3 col = lcg.get<vec3>(vec3(0.0f), vec3(1.0f));
+					vec3 d = (ep1 - ep0);
+					float dlen = length(d);
+					d /= dlen;
+					vec3 p = sample - ep0;
+					float q = Dot(p, d);
+					p = ep0 + d * q;
+					vec3 p2 = ep0 + d * Round(Saturate(q / dlen) * 3.0f) / 3.0f * dlen;
+
+					Im3d::PushColor(Im3d::Color(col.x, col.y, col.z, 1.0f));
+						Im3d::DrawPoint(sample, 8.0f, Im3d::GetColor());
+						Im3d::PushSize(4.0f);
+						Im3d::BeginLineStrip();
+							Im3d::Vertex(sample);
+							Im3d::Vertex(p);
+							Im3d::Vertex(p2);
+						Im3d::End();
+						Im3d::PopSize();
+					Im3d::PopColor();
+				}
+				Im3d::DrawLine(ep0, ep1, 1.0f, Im3d::Color_Blue);
+
+				/*Im3d::PushColor(Im3d::Color_Magenta);				
 				Im3d::PushSize(8.0f);
 				Im3d::PushMatrix();
 					vec3 t = GetTranslation(sampleMatrix);
@@ -1067,7 +1090,7 @@ public:
 					Im3d::DrawArrow(vec3(0.0f), PA);
 				Im3d::PopMatrix();
 				Im3d::PopSize();
-				Im3d::PopColor();
+				Im3d::PopColor();*/
 
 				ImGui::Value("Mean", avg);
 				ImGui::Value("C", C);
