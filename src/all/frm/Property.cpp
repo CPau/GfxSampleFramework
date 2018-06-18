@@ -1,5 +1,6 @@
 #include <frm/Property.h>
 
+#include <apt/log.h>
 #include <apt/memory.h>
 #include <apt/FileSystem.h>
 #include <apt/Json.h>
@@ -10,8 +11,9 @@
 #include <new>
 
 
-using namespace frm;
 using namespace apt;
+
+namespace frm {
 
 /******************************************************************************
 
@@ -526,3 +528,92 @@ bool frm::Serialize(SerializerJson& _serializer_, Properties& _props_)
 	}
 	return true;
 }
+
+namespace refactor {
+
+
+/******************************************************************************
+
+                              Properties
+
+******************************************************************************/
+
+// PUBLIC
+
+Properties* Properties::GetDefault()
+{
+	static Properties s_default;
+	return &s_default;
+} 
+
+// PRIVATE
+
+Properties* Properties::s_current = Properties::GetDefault();
+
+Property* Properties::find(const char* _propName, const char* _groupName)
+{
+	APT_STRICT_ASSERT(_propName);
+
+	const StringHash propHash  = StringHash(_propName);
+	const StringHash groupHash = _groupName ? StringHash(_groupName) : StringHash::kInvalidHash;
+
+ // resolve first group to search
+	Group* group = m_groupStack.back();
+	if (groupHash != StringHash::kInvalidHash) {
+		auto found = m_groups.find(groupHash);
+		if (found != m_groups.end()) {
+			group = found->second;
+		}
+	}
+
+ // find the prop
+	auto ret = findInGroup(propHash, group);
+	if (!ret && groupHash == StringHash::kInvalidHash) {
+	 // if not found and no group specified, search all groups
+		for (auto& g : m_groups) {
+			if (g.second != group) {
+				ret = findInGroup(propHash, g.second);
+				if (ret) {
+					break;
+				}
+			}
+		}
+	}
+
+	if (!ret) {
+		APT_LOG_ERR("Properties: %s%s%s not found", _groupName ? _groupName : "", _groupName ? "/" : "", _propName);
+	}
+
+	return ret;
+}
+
+void Properties::pushGroup(const char* _group)
+{
+	APT_STRICT_ASSERT(_group);
+	const StringHash groupHash = StringHash(_group);
+
+}
+void Properties::popGroup()
+{
+	APT_ASSERT(m_groupStack.size() > 1); // can't pop the default group
+	if (m_groupStack.size() > 1) {
+		m_groupStack.pop_back();
+	}
+}
+
+Property* Properties::findInGroup(StringHash _propName, const Group* _group)
+{
+	if (_propName == StringHash::kInvalidHash || !_group) {
+		return nullptr;
+	}
+	auto ret = _group->find(_propName);
+	if (ret != _group->end()) {
+		return ret->second;
+	}
+	return nullptr; 
+}
+
+
+} // namespace refactor
+
+} // namespace frm

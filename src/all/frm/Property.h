@@ -163,4 +163,130 @@ private:
 };
 
 
+namespace refactor {
+
+class Property;
+
+///////////////////////////////////////////////////////////////////////////////
+// Properties
+///////////////////////////////////////////////////////////////////////////////
+class Properties
+{
+public:
+	typedef bool (EditFunc)(Property& _prop);  // return true if the value changed
+	typedef void (DisplayFunc)(Property& _prop);
+
+	static bool DefaultEditFunc(Property& _prop);
+	static void DefaultDisplayFunc(Property& _prop);
+
+	static Properties* GetCurrent() { return s_current; }
+	static Properties* GetDefault();
+
+	// Add a new property to the current group. If _stroage is 0, memory is allocated internally. If the property already exists it is updated
+	// with the new paramters, replacing storage if specified. 
+	template <typename T>
+	static T* Add(const char* _name, T _default, T _min, T _max, T* _storage = nullptr, const char* _displayName = nullptr)
+	{
+		return GetCurrent()->add<T>(_name, _default, _min, _max, _storage, _displayName);
+	}
+	template <typename T>
+	static T* Add(const char* _name, T _default, T* _storage = nullptr, const char* _displayName = nullptr)
+	{
+		return GetCurrent()->add<T>(_name, _default, _storage, _displayName);
+	}
+
+	// Find an existing property. If _groupName is 0, search the current group first.
+	static Property* Find(const char* _propName, const char* _groupName = nullptr)
+	{
+		return GetCurrent()->find(_propName, _groupName);
+	}
+
+	// Push/pop the current group. If _group doesn't exist, a new empty group is created.
+	static void PushGroup(const char* _groupName)
+	{
+		GetCurrent()->pushGroup(_groupName);
+	}
+	static void PopGroup()
+	{
+		GetCurrent()->popGroup();
+	}
+	
+
+private:
+	typedef eastl::vector_map<StringHash, Property*>    PropertyMap;
+	typedef eastl::vector_map<StringHash, PropertyMap*> GroupMap;
+	typedef PropertyMap Group;
+	
+	static Properties* s_current;
+
+	GroupMap m_groups;
+	eastl::vector<Group*> m_groupStack;
+
+	template <typename T>
+	T* add(const char* _name, T _default, T _min, T _max, T* _storage = nullptr, const char* _displayName = nullptr);
+	template <typename T>
+	T* add(const char* _name, T _default, T* _storage = nullptr, const char* _displayName = nullptr);
+
+	Property* find(const char* _propName, const char* _groupName = nullptr);
+
+	void pushGroup(const char* _groupName);
+	void popGroup();
+
+	Property* findInGroup(StringHash _propName, const Group* _group);
+
+};
+
+///////////////////////////////////////////////////////////////////////////////
+// Property
+///////////////////////////////////////////////////////////////////////////////
+class Property
+{
+	friend class Properties;
+public:
+	typedef Properties::EditFunc    EditFunc;
+	typedef Properties::DisplayFunc DisplayFunc;
+	
+	enum Type_
+	{
+		Type_Bool,
+		Type_Int,
+		Type_Float,
+		Type_String,
+
+		Type_Count
+	};
+	typedef int Type;
+
+	const char*   getName() const                               { return (const char*)m_name;        }
+	void          setName(const char* _name)                    { m_name = _name;                    }
+	const char*   getDisplayName() const                        { return (const char*)m_displayName; }
+	void          setDisplayName(const char* _displayName)      { m_displayName = _displayName;      }
+	EditFunc*     getEditFunc() const                           { return m_editFunc;                 }
+	void          setEditFunc(EditFunc* _editFunc)              { m_editFunc = _editFunc;            }
+	DisplayFunc*  getDisplayFunc() const                        { return m_displayFunc;              }
+	void          setDisplayFunc(DisplayFunc* _displayFunc)     { m_displayFunc = _displayFunc;      } 	
+
+	Type          getType() const                               { return m_type;                     }
+	int           getCount() const                              { return m_count;                    }
+
+private:
+	typedef apt::String<32> String;
+
+	String       m_name         = nullptr;
+	String       m_displayName  = nullptr;
+	EditFunc*    m_editFunc     = Properties::DefaultEditFunc;
+	DisplayFunc* m_displayFunc  = Properties::DefaultDisplayFunc;
+	Type         m_type         = Type_Count;
+	int          m_count        = 0;
+	bool         m_ownsData     = false;
+	char*        m_data         = nullptr;
+	char*        m_default      = nullptr;
+	char*        m_min          = nullptr;
+	char*        m_max          = nullptr;
+};
+
+
+} // namespace refactor
+
+
 } // namespace frm
