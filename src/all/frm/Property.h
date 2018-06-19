@@ -169,6 +169,20 @@ class Property;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Properties
+// Simple property system. Use for application configs etc.
+// - Instances of the Properties class are containers of named groups, which
+//   are containers of named properties. Properties are therefore uniquely
+//   identified by the name and group name.
+// - Loading properties is order independent wrt the code which initializes
+//   the properties, i.e. don't require the properties to be init before loading
+//   or vice-versa. This is achieved by loading *everything* which is in the disk
+//   file and then setting the value when the property is added from the code.
+// 
+// \todo
+// - Need to allocate internal storage for all properties, the external storage
+//   ptr *may* be invalidated. This means that code must explicitly invalidate
+//   the external storage ptr when necessary (e.g. in the dtor).
+// - Uint type?
 ///////////////////////////////////////////////////////////////////////////////
 class Properties: private apt::non_copyable<Properties>
 {
@@ -177,14 +191,30 @@ public:
 
 	typedef bool (EditFunc)(Property& _prop);  // return true if the value changed
 	typedef void (DisplayFunc)(Property& _prop);
-	typedef bool (SerializeFunc)(Serializer& _serializer_, Property& _prop); // return false if error
+		
+	enum Type_
+	{
+		Type_Bool,
+		Type_Int,
+		Type_Float,
+		Type_String,
+
+		Type_Count
+	};
+	typedef int Type;
+	static const char* GetTypeStr(Type _type);
+	static int         GetTypeSizeBytes(Type _type);
+	template <typename T>
+	static Type        GetType();
+	template <typename T>
+	static int         GetCount();
 
 	static bool DefaultEditFunc(Property& _prop);
 	static void DefaultDisplayFunc(Property& _prop);
-	static bool DefaultSerializeFunc(Serializer& _serializer_, Property& _prop);
 
-	static Properties* GetCurrent() { return s_current; }
 	static Properties* GetDefault();
+	static Properties* GetCurrent()                        { return s_current; }
+	static Properties* SetCurrent(Properties* _properties) { s_current = _properties ? _properties : GetDefault(); }
 
 	// Add a new property to the current group. If _stroage is 0, memory is allocated internally. If the property already exists it is updated
 	// with the new paramters, replacing storage if specified. 
@@ -214,14 +244,18 @@ public:
 	{
 		GetCurrent()->popGroup();
 	}
+
+	// Find a property as per Find(), invalidate the external storage ptr. Call this e.g. in the dtor of a class which owns the storage, this is
+	// important to allow properties to be correctly serialized.
+	static void InvalidateStorage(const char* _propName, const char* _groupName = nullptr);
 	
 	static Properties* Create();
 	static void        Destroy(Properties*& _properties_);
 
 private:
-	typedef eastl::vector_map<StringHash, Property*>    PropertyMap;
-	typedef eastl::vector_map<StringHash, PropertyMap*> GroupMap;
-	typedef eastl::vector_map<StringHash, String<64> >  StringMap;
+	typedef eastl::vector_map<apt::StringHash, Property*>        PropertyMap;
+	typedef eastl::vector_map<apt::StringHash, PropertyMap*>     GroupMap;
+	typedef eastl::vector_map<apt::StringHash, apt::String<64> > StringMap;
 	typedef PropertyMap Group;
 	
 	static Properties* s_current;
@@ -233,10 +267,18 @@ private:
 	Properties();
 	~Properties();
 	
+	void* add(const char* _name, Type _type, int _count, void* _default, void* _min, void* _max, void* _storage, const char* _displayName);
+
 	template <typename T>
-	T* add(const char* _name, T _default, T _min, T _max, T* _storage = nullptr, const char* _displayName = nullptr);
+	T* add(const char* _name, T _default, T _min, T _max, T* _storage = nullptr, const char* _displayName = nullptr)
+	{
+		return (T*)add(_name, t, APT_TRAITS_COUNT(T), &_default, &_min, &_max, _storage, _displayName);
+	}
 	template <typename T>
-	T* add(const char* _name, T _default, T* _storage = nullptr, const char* _displayName = nullptr);
+	T* add(const char* _name, T _default, T* _storage = nullptr, const char* _displayName = nullptr)
+	{
+		return (T*)add(_name, t, APT_TRAITS_COUNT(T), &_default, nullptr, nullptr, _storage, _displayName);
+	}
 
 	Property* find(const char* _propName, const char* _groupName = nullptr);
 
@@ -244,7 +286,7 @@ private:
 	void popGroup();
 
 	Group*    newGroup(const char* _groupName);
-	Property* findInGroup(StringHash _propName, const Group* _group) const;
+	Property* findInGroup(apt::StringHash _propName, const Group* _group) const;
 
 };
 
@@ -257,22 +299,7 @@ class Property
 public:
 	typedef Properties::EditFunc      EditFunc;
 	typedef Properties::DisplayFunc   DisplayFunc;
-	typedef Properties::SerializeFunc SerializeFunc;
-	
-	enum Type_
-	{
-	 // basic types
-		Type_Bool,
-		Type_Int,
-		Type_Float,
-		Type_String,
-
-	 // user type (must provide custom edit/display/serialize funcs)
-		Type_User,
-
-		Type_Count
-	};
-	typedef int Type;
+	typedef Properties::Type          Type;
 
 	const char*   getName() const                               { return (const char*)m_name;        }
 	void          setName(const char* _name)                    { m_name = _name;                    }
@@ -281,26 +308,55 @@ public:
 	EditFunc*     getEditFunc() const                           { return m_editFunc;                 }
 	void          setEditFunc(EditFunc* _editFunc)              { m_editFunc = _editFunc;            }
 	DisplayFunc*  getDisplayFunc() const                        { return m_displayFunc;              }
-	void          setDisplayFunc(DisplayFunc* _displayFunc)     { m_displayFunc = _displayFunc;      } 	
+	void          setDisplayFunc(DisplayFunc* _displayFunc)     { m_displayFunc = _displayFunc;      }
+	void*         getDefault()                                  { return m_default;                  }
+	void          setDefault(void* _default);
+	void*         getMin()                                      { return m_min;                      }
+	void          setMin(void* _min);
+	void*         getMax()                                      { return m_min;                      }
+	void          setMax(void* _max);
 
 	Type          getType() const                               { return m_type;                     }
 	int           getCount() const                              { return m_count;                    }
+	int           getSizeBytes() const;
+	void*         getInternalStorage() const                    { return m_storageInternal;          }
+
+
+	// Setting the external storage ptr to a none-null value will copy the value from internal -> external.
+	// Setting the external storage ptr to null will copy external -> internal (invalidation).
+	void*         getExternalStorage() const                    { return m_storageExternal;          }
+	void          setExternalStorage(void* _storage_);
+
 
 private:
 	typedef apt::String<32> String;
 
-	String          m_name          = nullptr;
-	String          m_displayName   = nullptr;
-	EditFunc*       m_editFunc      = Properties::DefaultEditFunc;
-	DisplayFunc*    m_displayFunc   = Properties::DefaultDisplayFunc;
-	SerializeFunc*  m_serializeFunc = Properties::DefaultSerializeFunc;
-	Type            m_type          = Type_Count;
-	int             m_count         = 0;
-	bool            m_ownsData      = false;
-	char*           m_data          = nullptr;
-	char*           m_default       = nullptr;
-	char*           m_min           = nullptr;
-	char*           m_max           = nullptr;
+	Property(
+		const char* _name,
+		const char* _displayName,
+		Type        _type,
+		int         _count,
+		void*       _storageExternal,
+		void*       _default,
+		void*       _min,
+		void*       _max
+		);
+
+	~Property();
+
+	String          m_name            = nullptr;
+	String          m_displayName     = nullptr;
+	EditFunc*       m_editFunc        = Properties::DefaultEditFunc;
+	DisplayFunc*    m_displayFunc     = Properties::DefaultDisplayFunc;
+	Type            m_type            = Properties::Type_Count;
+	int             m_count           = 0;
+	char*           m_storageExternal = nullptr;
+	char*           m_storageInternal = nullptr;
+	char*           m_default         = nullptr;
+	char*           m_min             = nullptr;
+	char*           m_max             = nullptr;
+
+	void copy(void* dst_, void* _src);
 };
 
 

@@ -540,30 +540,71 @@ namespace refactor {
 
 // PUBLIC
 
+const char* Properties::GetTypeStr(Type _type)
+{
+	switch (_type) {
+		case Type_Bool:   return "Bool";
+		case Type_Int:    return "Int";
+		case Type_Float:  return "Float";
+		case Type_String: return "String";
+		default:          return "Unknown Type";
+	};
+}
+
+int Properties::GetTypeSizeBytes(Type _type)
+{
+	switch (_type) {
+		case Type_Bool:   return (int)sizeof(bool);
+		case Type_Int:    return (int)sizeof(int);
+		case Type_Float:  return (int)sizeof(float);
+		case Type_String: return (int)sizeof(StringBase);
+		default:          return 0;
+	};
+}
+
+#define Properties_GetTypeCount(_T, _retType, _retCount) \
+	template <> Properties::Type Properties::GetType<_T>()  { return _retType; } \
+	template <> Properties::Type Properties::GetCount<_T>() { return _retCount; }
+
+Properties_GetTypeCount(bool,       Properties::Type_Bool,   1);
+Properties_GetTypeCount(bvec2,      Properties::Type_Bool,   2);
+Properties_GetTypeCount(bvec3,      Properties::Type_Bool,   3);
+Properties_GetTypeCount(bvec4,      Properties::Type_Bool,   4);
+
+Properties_GetTypeCount(int,        Properties::Type_Int,    1);
+Properties_GetTypeCount(ivec2,      Properties::Type_Int,    2);
+Properties_GetTypeCount(ivec3,      Properties::Type_Int,    3);
+Properties_GetTypeCount(ivec4,      Properties::Type_Int,    4);
+
+Properties_GetTypeCount(float,      Properties::Type_Float,  1);
+Properties_GetTypeCount(vec2,       Properties::Type_Float,  2);
+Properties_GetTypeCount(vec3,       Properties::Type_Float,  3);
+Properties_GetTypeCount(vec4,       Properties::Type_Float,  4);
+
+Properties_GetTypeCount(StringBase, Properties::Type_String, 1);
+
+
 bool Properties::DefaultEditFunc(Property& _prop)
 {
 	switch (_prop.getType()) {
-	default:
-		APT_ASSERT(false);
+		case Type_Bool:
+			break;
+		case Type_Int:
+			break;
+		case Type_Float:
+			break;
+		case Type_String:
+			break;
+		default: 
+			APT_ASSERT(false);
+			break;
 	};
 	return false;
 }
 
 void Properties::DefaultDisplayFunc(Property& _prop)
 {
-	switch (_prop.getType()) {
-	default:
-		APT_ASSERT(false);
-	};
-}
 
-bool Properties::DefaultSerializeFunc(Serializer& _serializer_, Property& _prop)
-{
-	switch (_prop.getType()) {
-	default:
-		APT_ASSERT(false);
-	};
-	return false;
 }
 
 Properties* Properties::GetDefault()
@@ -581,6 +622,14 @@ void Properties::Destroy(Properties*& _properties_)
 {
 	APT_DELETE(_properties_);
 	_properties_ = nullptr;
+}
+
+void Properties::InvalidateStorage(const char* _propName, const char* _groupName)
+{
+	auto prop = Find(_propName, _groupName);
+	if (prop) {
+		prop->setExternalStorage(nullptr);
+	}
 }
 
 // PRIVATE
@@ -603,6 +652,36 @@ Properties::~Properties()
 		m_groups.pop_back();
 	}
 	m_groupStack.clear();
+}
+
+void* Properties::add(const char* _name, Type _type, int _count, void* _default, void* _min, void* _max, void* _storage, const char* _displayName)
+{
+	auto group = m_groupStack.back();
+	APT_STRICT_ASSERT(group);
+	auto nameHash = apt::StringHash(_name);
+	auto it = group->find(nameHash);
+	if (it != group->end()) {
+	 // already exists
+		auto prop = it->second;
+		if (_type != prop->getType()) {
+			APT_LOG_ERR("Properties: '%s' type mismatch (new: %s, existing: %s)", _name, GetTypeStr(_type), GetTypeStr(prop->getType()));
+			APT_ASSERT(false);
+		}
+		if (_count != prop->getCount()) {
+			APT_LOG_ERR("Properties: '%s' count mismatch (new: %d, existing: %d", _name, _count, prop->getCount());
+			APT_ASSERT(false);
+		}
+		prop->setDefault(&_default);
+		prop->setMin(&_min);
+		prop->setMax(&_max);
+		prop->setExternalStorage(_storage);
+		prop->setDisplayName(_displayName);
+		return _storage ? _storage : prop->getInternalStorage();
+	} else {
+	 // doesn't exist, add new
+		auto prop = APT_NEW(refactor::Property(_name, _displayName, _type, _count, _storage, _default, _min, _max));
+		return _storage ? _storage : prop->getInternalStorage();			
+	}
 }
 
 Property* Properties::find(const char* _propName, const char* _groupName)
@@ -636,7 +715,7 @@ Property* Properties::find(const char* _propName, const char* _groupName)
 	}
 
 	if (!ret) {
-		APT_LOG_ERR("Properties: %s%s%s not found", _groupName ? _groupName : "", _groupName ? "/" : "", _propName);
+		APT_LOG_ERR("Properties: '%s%s%s' not found.", _groupName ? _groupName : "", _groupName ? "/" : "", _propName);
 	}
 
 	return ret;
@@ -679,6 +758,105 @@ refactor::Property* Properties::findInGroup(StringHash _propName, const Group* _
 	return nullptr; 
 }
 
+/******************************************************************************
+
+                                Property
+
+******************************************************************************/
+
+// PUBLIC
+
+void Property::setDefault(void* _default)
+{
+	copy(m_default, _default);
+}
+
+void Property::setMin(void* _min)
+{
+	copy(m_min, _min);
+}
+
+void Property::setMax(void* _max)
+{
+	copy(m_max, _max);
+}
+
+int Property::getSizeBytes() const
+{
+	return Properties::GetTypeSizeBytes(m_type) * m_count;
+}
+
+void Property::setExternalStorage(void* _storage_)
+{
+	if (_storage_) {
+	 // setting external storage, copy current value from internal storage
+		m_storageExternal = (char*)_storage_;
+		copy(m_storageExternal, m_storageInternal);
+	} else {
+	 // invalidating external storage, copy current to internal storage
+		copy(m_storageInternal, m_storageExternal);
+		m_storageExternal = nullptr;
+	}	
+}
+
+
+// PRIVATE
+
+Property::Property(
+	const char* _name,
+	const char* _displayName,
+	Type        _type,
+	int         _count,
+	void*       _storageExternal,
+	void*       _default,
+	void*       _min,
+	void*       _max
+	)
+	: m_name(_name)
+	, m_displayName(_displayName ? _displayName : _name)
+	, m_type(_type)
+	, m_count(_count)
+	, m_storageExternal((char*)_storageExternal)
+{
+	const int sizeBytes = getSizeBytes();
+
+	APT_ASSERT(_default); // default must not be 0
+	m_default = (char*)APT_MALLOC(getSizeBytes());
+	copy(m_default, _default);
+
+	m_storageInternal = (char*)APT_MALLOC(getSizeBytes());
+	copy(m_storageInternal, _default);
+
+	if (m_storageExternal) {
+		copy(m_storageExternal, _default);
+	}
+
+	if (_min) {
+		m_min = (char*)APT_MALLOC(getSizeBytes());
+		copy(m_min, _min);
+	}
+	if (_max) {
+		m_max = (char*)APT_MALLOC(getSizeBytes());
+		copy(m_max, _max);
+	}
+}
+
+Property::~Property()
+{
+	if (m_storageExternal) {
+		APT_LOG_ERR("Properties: '%s' external storage was not invalidated.");
+	}
+	APT_FREE(m_storageInternal);
+	APT_FREE(m_default);
+	APT_FREE(m_min);
+	APT_FREE(m_max);
+}
+
+void Property::copy(void* dst_, void* _src)
+{
+	APT_ASSERT(dst_ && _src);
+	memcpy(dst_, _src, getSizeBytes());
+}
 
 } // namespace refactor
 
