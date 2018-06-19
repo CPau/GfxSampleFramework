@@ -540,15 +540,70 @@ namespace refactor {
 
 // PUBLIC
 
+bool Properties::DefaultEditFunc(Property& _prop)
+{
+	switch (_prop.getType()) {
+	default:
+		APT_ASSERT(false);
+	};
+	return false;
+}
+
+void Properties::DefaultDisplayFunc(Property& _prop)
+{
+	switch (_prop.getType()) {
+	default:
+		APT_ASSERT(false);
+	};
+}
+
+bool Properties::DefaultSerializeFunc(Serializer& _serializer_, Property& _prop)
+{
+	switch (_prop.getType()) {
+	default:
+		APT_ASSERT(false);
+	};
+	return false;
+}
+
 Properties* Properties::GetDefault()
 {
 	static Properties s_default;
 	return &s_default;
-} 
+}
+
+Properties* Properties::Create()
+{
+	return APT_NEW(Properties());
+}
+
+void Properties::Destroy(Properties*& _properties_)
+{
+	APT_DELETE(_properties_);
+	_properties_ = nullptr;
+}
 
 // PRIVATE
 
 Properties* Properties::s_current = Properties::GetDefault();
+
+Properties::Properties()
+{
+	m_groupStack.push_back(newGroup(kDefaultGroupName));
+}
+Properties::~Properties()
+{
+	while (!m_groups.empty()) {
+		auto& group = *m_groups.back().second;
+		while (!group.empty()) {
+			APT_DELETE(group.back().second);
+			group.pop_back();
+		}
+		APT_DELETE(&group);
+		m_groups.pop_back();
+	}
+	m_groupStack.clear();
+}
 
 Property* Properties::find(const char* _propName, const char* _groupName)
 {
@@ -601,7 +656,18 @@ void Properties::popGroup()
 	}
 }
 
-Property* Properties::findInGroup(StringHash _propName, const Group* _group)
+Properties::Group* Properties::newGroup(const char* _groupName)
+{
+	StringHash groupHash = StringHash(_groupName);
+	APT_ASSERT(m_groups.find(groupHash) == m_groups.end()); // group already exists
+
+	Group* ret = APT_NEW(Group());
+	m_groups[groupHash]     = ret;
+	m_groupNames[groupHash] = _groupName;
+	return ret;
+}
+
+refactor::Property* Properties::findInGroup(StringHash _propName, const Group* _group) const
 {
 	if (_propName == StringHash::kInvalidHash || !_group) {
 		return nullptr;
