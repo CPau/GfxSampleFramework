@@ -28,6 +28,9 @@ namespace frm {
 	using apt::float16;
 	using apt::float64;
 
+	using apt::String;
+	using apt::PathStr;
+
  // forward declarations
 	class  App;
 	class  AppSample;
