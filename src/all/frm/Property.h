@@ -190,7 +190,7 @@ public:
 	static constexpr const char* kDefaultGroupName = "_defaultGroup";
 
 	typedef bool (EditFunc)(Property& _prop);  // return true if the value changed
-	typedef void (DisplayFunc)(Property& _prop);
+	typedef void (DisplayFunc)(const Property& _prop);
 		
 	enum Type_
 	{
@@ -209,25 +209,31 @@ public:
 	template <typename T>
 	static int         GetCount();
 
-	static bool DefaultEditFunc(Property& _prop);
-	static void DefaultDisplayFunc(Property& _prop);
+	static bool DefaultEditFunc(Property& _prop_);
+	static bool ColorEditFunc(Property& _prop_);
+	static bool PathEditFunc(Property& _prop_);
+	static void DefaultDisplayFunc(const Property& _prop);
+	static void ColorDisplayFunc(const Property& _prop);
 
 	static Properties* GetDefault();
 	static Properties* GetCurrent()                        { return s_current; }
 	static Properties* SetCurrent(Properties* _properties) { s_current = _properties ? _properties : GetDefault(); }
 
-	// Add a new property to the current group. If _stroage is 0, memory is allocated internally. If the property already exists it is updated
-	// with the new paramters, replacing storage if specified. 
+	// Add a new property to the current group. If _storage is 0, memory is allocated internally. If the property already exists it is updated with the new metadata. 
 	template <typename T>
-	static T* Add(const char* _name, T _default, T _min, T _max, T* _storage = nullptr, const char* _displayName = nullptr)
+	static Property* Add(const char* _name, const T& _default, const T& _min, const T& _max, T* _storage = nullptr, const char* _displayName = nullptr)
 	{
 		return GetCurrent()->add<T>(_name, _default, _min, _max, _storage, _displayName);
 	}
 	template <typename T>
-	static T* Add(const char* _name, T _default, T* _storage = nullptr, const char* _displayName = nullptr)
+	static Property* Add(const char* _name, const T& _default, T* _storage = nullptr, const char* _displayName = nullptr)
 	{
 		return GetCurrent()->add<T>(_name, _default, _storage, _displayName);
 	}
+
+	static Property* AddColor(const char* _name, const vec3& _default, vec3* _storage = nullptr, const char* _displayName = nullptr);
+	static Property* AddColor(const char* _name, const vec4& _default, vec4* _storage = nullptr, const char* _displayName = nullptr);
+	static Property* AddPath(const char* _name, const PathStr& _default, PathStr* _storage = nullptr, const char* _displayName = nullptr);
 
 	// Find an existing property. If _groupName is 0, search the current group first.
 	static Property* Find(const char* _propName, const char* _groupName = nullptr)
@@ -252,6 +258,8 @@ public:
 	static Properties* Create();
 	static void        Destroy(Properties*& _properties_);
 
+	friend bool Serialize(apt::SerializerJson& _serializer_, Properties& _props_);
+
 private:
 	typedef eastl::vector_map<apt::StringHash, Property*>        PropertyMap;
 	typedef eastl::vector_map<apt::StringHash, PropertyMap*>     GroupMap;
@@ -267,23 +275,28 @@ private:
 	Properties();
 	~Properties();
 	
-	void* add(const char* _name, Type _type, int _count, void* _default, void* _min, void* _max, void* _storage, const char* _displayName);
+	Property* add(const char* _name, Type _type, int _count, const void* _default, const void* _min, const void* _max, void* _storage, const char* _displayName);
 
 	template <typename T>
-	T* add(const char* _name, T _default, T _min, T _max, T* _storage = nullptr, const char* _displayName = nullptr)
+	Property* add(const char* _name, const T& _default, const T& _min, const T& _max, T* _storage, const char* _displayName)
 	{
-		return (T*)add(_name, t, APT_TRAITS_COUNT(T), &_default, &_min, &_max, _storage, _displayName);
+		return add(_name, GetType<T>(), APT_TRAITS_COUNT(T), &_default, &_min, &_max, _storage, _displayName);
 	}
 	template <typename T>
-	T* add(const char* _name, T _default, T* _storage = nullptr, const char* _displayName = nullptr)
+	Property* add(const char* _name, const T& _default, T* _storage, const char* _displayName)
 	{
-		return (T*)add(_name, t, APT_TRAITS_COUNT(T), &_default, nullptr, nullptr, _storage, _displayName);
+		return add(_name, GetType<T>(), APT_TRAITS_COUNT(T), &_default, nullptr, nullptr, _storage, _displayName);
 	}
+		template <>
+		Property* add<apt::StringBase>(const char* _name, const apt::StringBase& _default, apt::StringBase* _storage, const char* _displayName)
+		{
+			return add(_name, Type_String, 1, &_default, nullptr, nullptr, _storage, _displayName);
+		}
 
 	Property* find(const char* _propName, const char* _groupName = nullptr);
 
-	void pushGroup(const char* _groupName);
-	void popGroup();
+	void      pushGroup(const char* _groupName);
+	void      popGroup();
 
 	Group*    newGroup(const char* _groupName);
 	Property* findInGroup(apt::StringHash _propName, const Group* _group) const;
@@ -300,6 +313,8 @@ public:
 	typedef Properties::EditFunc      EditFunc;
 	typedef Properties::DisplayFunc   DisplayFunc;
 	typedef Properties::Type          Type;
+
+	void          reset();
 
 	const char*   getName() const                               { return (const char*)m_name;        }
 	void          setName(const char* _name)                    { m_name = _name;                    }
@@ -321,12 +336,13 @@ public:
 	int           getSizeBytes() const;
 	void*         getInternalStorage() const                    { return m_storageInternal;          }
 
-
 	// Setting the external storage ptr to a none-null value will copy the value from internal -> external.
 	// Setting the external storage ptr to null will copy external -> internal (invalidation).
 	void*         getExternalStorage() const                    { return m_storageExternal;          }
 	void          setExternalStorage(void* _storage_);
 
+	// Return external storage ptr if not 0, else internal storage ptr.
+	void*         getStorage() const                            { return m_storageExternal ? m_storageExternal : m_storageInternal; }
 
 private:
 	typedef apt::String<32> String;
@@ -337,9 +353,9 @@ private:
 		Type        _type,
 		int         _count,
 		void*       _storageExternal,
-		void*       _default,
-		void*       _min,
-		void*       _max
+		const void* _default,
+		const void* _min,
+		const void* _max
 		);
 
 	~Property();
@@ -356,7 +372,7 @@ private:
 	char*           m_min             = nullptr;
 	char*           m_max             = nullptr;
 
-	void copy(void* dst_, void* _src);
+	void copy(void* dst_, const void* _src);
 };
 
 

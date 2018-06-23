@@ -586,31 +586,207 @@ Properties_GetTypeCount(StringBase, Properties::Type_String, 1);
 
 bool Properties::DefaultEditFunc(Property& _prop)
 {
-	switch (_prop.getType()) {
+	constexpr const int kStrBufLen = 512;
+	bool ret = false;
+	void* data = _prop.getStorage();
+	switch (_prop.m_type) {
 		case Type_Bool:
+			switch (_prop.m_count) {
+				case 1:
+					ret |= ImGui::Checkbox((const char*)_prop.m_displayName, (bool*)data);
+					break;
+				default: {
+					String<64> displayName;
+					for (int i = 0; i < _prop.m_count; ++i) {
+						displayName.setf("%s[%d]", (const char*)_prop.m_displayName, i); 
+						ret |= ImGui::Checkbox((const char*)displayName, (bool*)data);
+					}
+					break;
+				}	
+			};
 			break;
 		case Type_Int:
+			switch (_prop.m_count) {
+				case 1:
+					ret |= ImGui::SliderInt((const char*)_prop.m_displayName, (int*)data, *((int*)_prop.m_min), *((int*)_prop.m_max));
+					break;
+				case 2:
+					ret |= ImGui::SliderInt2((const char*)_prop.m_displayName, (int*)data, *((int*)_prop.m_min), *((int*)_prop.m_max));
+					break;
+				case 3:
+					ret |= ImGui::SliderInt3((const char*)_prop.m_displayName, (int*)data, *((int*)_prop.m_min), *((int*)_prop.m_max));
+					break;
+				case 4:
+					ret |= ImGui::SliderInt4((const char*)_prop.m_displayName, (int*)data, *((int*)_prop.m_min), *((int*)_prop.m_max));
+					break;
+				default: {
+					APT_ASSERT(false); // \todo arbitrary arrays, see bool
+					break;
+				}
+			};
 			break;
 		case Type_Float:
+			switch (_prop.m_count) {
+				case 1:
+					ret |= ImGui::SliderFloat((const char*)_prop.m_displayName, (float*)data, *((float*)_prop.m_min), *((float*)_prop.m_max));
+					break;
+				case 2:
+					ret |= ImGui::SliderFloat2((const char*)_prop.m_displayName, (float*)data, *((float*)_prop.m_min), *((float*)_prop.m_max));
+					break;
+				case 3:
+					ret |= ImGui::SliderFloat3((const char*)_prop.m_displayName, (float*)data, *((float*)_prop.m_min), *((float*)_prop.m_max));
+					break;
+				case 4:
+					ret |= ImGui::SliderFloat4((const char*)_prop.m_displayName, (float*)data, *((float*)_prop.m_min), *((float*)_prop.m_max));
+					break;
+				default: {
+					APT_ASSERT(false); // \todo arbitrary arrays, see bool
+					break;
+				}
+			};
+			break;
+		case Type_String: {
+			char buf[kStrBufLen];
+			switch (_prop.m_count) {
+				case 1: {
+					apt::StringBase& str = *(apt::StringBase*)data;
+					APT_ASSERT(str.getCapacity() < kStrBufLen);
+					memcpy(buf, (const char*)str, str.getLength() + 1);
+					if (ImGui::InputText((const char*)_prop.m_displayName, buf, kStrBufLen)) {
+						str.set(buf);
+						ret = true;
+					}
+					break;
+				}
+				default: {
+					String<64> displayName;
+					for (int i = 0; i < _prop.m_count; ++i) {
+						displayName.setf("%s[%d]", (const char*)_prop.m_displayName, i); 
+					 	apt::StringBase& str = *(apt::StringBase*)data;
+						APT_ASSERT(str.getCapacity() < kStrBufLen);
+						if (ImGui::InputText((const char*)displayName, buf, kStrBufLen)) {
+							str.set(buf);
+							ret = true;
+						}
+					}
+					break;
+				};
+			};
+			break;
+		default:
+			APT_ASSERT(false);
+			break;
+		}
+	};
+	return ret;
+}
+
+bool Properties::ColorEditFunc(Property& _prop_)
+{
+	APT_ASSERT(_prop_.getType() == Type_Float);
+
+	float* data = (float*)_prop_.getStorage();
+	bool ret = false;
+	if (_prop_.getCount() == 3) {
+		ret = ImGui::ColorEdit3(_prop_.getName(), data);
+	} else {
+		ret = ImGui::ColorEdit4(_prop_.getName(), data);
+	}
+	return ret;
+}
+
+bool Properties::PathEditFunc(Property& _prop_)
+{
+	bool ret = false;
+	PathStr& pth = *((PathStr*)_prop_.getStorage());
+	if (ImGui::Button(_prop_.getDisplayName())) {
+		if (FileSystem::PlatformSelect(pth)) {
+			pth = FileSystem::MakeRelative((const char*)pth);
+			ret = true;
+		}
+	}
+	ImGui::SameLine();
+	ImGui::Text("\"%s\"", (const char*)pth);
+	return ret;
+}
+
+void Properties::DefaultDisplayFunc(const Property& _prop)
+{
+	ImGui::Text("%s: ", (const char*)_prop.m_displayName);
+	void* data = _prop.getStorage();
+	switch (_prop.m_type) {
+		case Type_Bool:
+			for (int i = 0; i < _prop.m_count; ++i) {
+				ImGui::SameLine();
+				ImGui::Text("%d ", (int)((bool*)data)[i]);
+			}
+			break;
+		case Type_Int:
+			for (int i = 0; i < _prop.m_count; ++i) {
+				ImGui::SameLine();
+				ImGui::Text("%d ", ((int*)data)[i]);
+			}
+			break;
+		case Type_Float:
+			for (int i = 0; i < _prop.m_count; ++i) {
+				ImGui::SameLine();
+				ImGui::Text("%+07.3f ", ((float*)data)[i]);
+			}
 			break;
 		case Type_String:
+			for (int i = 0; i < _prop.m_count; ++i) {
+				ImGui::Text("%s", ((apt::StringBase*)data)[i].c_str());
+			}
 			break;
-		default: 
+		default:
 			APT_ASSERT(false);
 			break;
 	};
-	return false;
 }
 
-void Properties::DefaultDisplayFunc(Property& _prop)
+void Properties::ColorDisplayFunc(const Property& _prop)
 {
+	APT_ASSERT(_prop.getType() == Type_Float);
 
+	ImGui::Text("%s: ", _prop.getName());
+	ImGui::SameLine();
+	const float* data = (float*)_prop.getStorage();
+	ImGui::ColorButton(_prop.getName(), ImVec4(data[0], data[1], data[2], data[3]));
 }
 
 Properties* Properties::GetDefault()
 {
 	static Properties s_default;
 	return &s_default;
+}
+
+Property* Properties::AddColor(const char* _name, const vec3& _default, vec3* _storage, const char* _displayName)
+{
+	auto ret = Add(_name, _default, _storage, _displayName);
+	ret->setEditFunc(ColorEditFunc); 
+	return ret;
+}
+
+Property* Properties::AddColor(const char* _name, const vec4& _default, vec4* _storage, const char* _displayName)
+{
+	auto ret = Add(_name, _default, _storage, _displayName);
+	ret->setEditFunc(ColorEditFunc);
+	return ret;
+}
+
+Property* Properties::AddPath(const char* _name, const PathStr& _default, PathStr* _storage, const char* _displayName)
+{
+	auto ret = Add(_name, (const StringBase&)_default, (StringBase*)_storage, _displayName);
+	ret->setEditFunc(PathEditFunc);
+	return ret;
+}
+
+void Properties::InvalidateStorage(const char* _propName, const char* _groupName)
+{
+	auto prop = Find(_propName, _groupName);
+	if (prop) {
+		prop->setExternalStorage(nullptr);
+	}
 }
 
 Properties* Properties::Create()
@@ -624,13 +800,63 @@ void Properties::Destroy(Properties*& _properties_)
 	_properties_ = nullptr;
 }
 
-void Properties::InvalidateStorage(const char* _propName, const char* _groupName)
+
+bool frm::refactor::Serialize(SerializerJson& _serializer_, Properties& _props_)
 {
-	auto prop = Find(_propName, _groupName);
-	if (prop) {
-		prop->setExternalStorage(nullptr);
+	bool ret = true;
+
+	if (_serializer_.getMode() == SerializerJson::Mode_Read) {
+		Json* json = _serializer_.getJson();
+		while (json->next()) { // for each group
+			json->enterObject();
+			_props_.pushGroup(json->getName());
+				while (json->next()) { // for each property
+					switch (json->getType()) {
+					};
+				}
+			_props_.popGroup();
+			json->leaveObject();
+		}
+
+	} else {
+		for (auto& groupIt : _props_.m_groups) {
+			auto  groupHash = groupIt.first;
+			auto& group     = *groupIt.second;
+			
+			ret &= _serializer_.beginObject(_props_.m_groupNames[groupHash].c_str());
+				for (auto& propIt : group) {
+					auto& prop = *propIt.second;
+					void* data = prop.getStorage();
+					if (prop.getCount() == 1) {
+						switch (prop.getType()) {
+							case Properties::Type_Bool:    _serializer_.value(*((bool*)data),       prop.getName()); break;
+							case Properties::Type_Int:     _serializer_.value(*((int*)data),        prop.getName()); break;
+							case Properties::Type_Float:   _serializer_.value(*((float*)data),      prop.getName()); break;
+							case Properties::Type_String:  _serializer_.value(*((StringBase*)data), prop.getName()); break;
+							default:                       APT_ASSERT(false); break;
+						};
+					} else {
+						uint count = (uint)prop.getCount();
+						ret &= _serializer_.beginArray(count, prop.getName());
+							for (uint i = 0; i < count; ++i) {
+								switch (prop.getType()) {
+									case Properties::Type_Bool:    _serializer_.value(((bool*)data)[i]); break;
+									case Properties::Type_Int:     _serializer_.value(((int*)data)[i]); break;
+									case Properties::Type_Float:   _serializer_.value(((float*)data)[i]); break;
+									case Properties::Type_String:  _serializer_.value(((StringBase*)data)[i]); break;
+									default:                       APT_ASSERT(false); break;
+								};
+							}
+						_serializer_.endArray();
+					}
+				}
+			_serializer_.endObject();
+		}
 	}
+
+	return ret;
 }
+
 
 // PRIVATE
 
@@ -654,7 +880,7 @@ Properties::~Properties()
 	m_groupStack.clear();
 }
 
-void* Properties::add(const char* _name, Type _type, int _count, void* _default, void* _min, void* _max, void* _storage, const char* _displayName)
+Property* Properties::add(const char* _name, Type _type, int _count, const void* _default, const void* _min, const void* _max, void* _storage, const char* _displayName)
 {
 	auto group = m_groupStack.back();
 	APT_STRICT_ASSERT(group);
@@ -676,11 +902,11 @@ void* Properties::add(const char* _name, Type _type, int _count, void* _default,
 		prop->setMax(&_max);
 		prop->setExternalStorage(_storage);
 		prop->setDisplayName(_displayName);
-		return _storage ? _storage : prop->getInternalStorage();
+		return prop;
 	} else {
 	 // doesn't exist, add new
 		auto prop = APT_NEW(refactor::Property(_name, _displayName, _type, _count, _storage, _default, _min, _max));
-		return _storage ? _storage : prop->getInternalStorage();			
+		return prop;			
 	}
 }
 
@@ -766,6 +992,14 @@ refactor::Property* Properties::findInGroup(StringHash _propName, const Group* _
 
 // PUBLIC
 
+void Property::reset()
+{
+	copy(m_storageInternal, m_default);
+	if (m_storageExternal) {
+		copy(m_storageExternal, m_default);
+	}
+}
+
 void Property::setDefault(void* _default)
 {
 	copy(m_default, _default);
@@ -799,7 +1033,6 @@ void Property::setExternalStorage(void* _storage_)
 	}	
 }
 
-
 // PRIVATE
 
 Property::Property(
@@ -808,9 +1041,9 @@ Property::Property(
 	Type        _type,
 	int         _count,
 	void*       _storageExternal,
-	void*       _default,
-	void*       _min,
-	void*       _max
+	const void* _default,
+	const void* _min,
+	const void* _max
 	)
 	: m_name(_name)
 	, m_displayName(_displayName ? _displayName : _name)
@@ -852,7 +1085,7 @@ Property::~Property()
 	APT_FREE(m_max);
 }
 
-void Property::copy(void* dst_, void* _src)
+void Property::copy(void* dst_, const void* _src)
 {
 	APT_ASSERT(dst_ && _src);
 	memcpy(dst_, _src, getSizeBytes());
