@@ -23,6 +23,7 @@
 	- 4 blocks at once for better thread utilization (8x8 vs 4x4)?
 	- Copy src block to VGPRs?
 	- Pack src block as RGB 5:6:5?
+	- see https://github.com/OpenGLInsights/OpenGLInsightsCode/blob/master/Chapter%2031%20In-Game%20Video%20Capture%20with%20Real-Time%20Texture%20Compression/bin/shaders/dxt.glsl
 
 	notes:
 	- The HQ implementation is basically a copy of stb_dxt but without the refinement step
@@ -208,8 +209,8 @@ void main()
 		#endif
 
 	 // find endpoints
-		vec3 vf = abs(ep1 - ep0);
-		for (int i = 0; i < 16; ++i) {
+		vec3 vf = ep1 - ep0;
+		for (int i = 0; i < 16; ++i) { // \TODO this doesn't seem to affect the quality much?
 			float x = dot(vf, C[0]);
 			float y = dot(vf, C[1]);
 			float z = dot(vf, C[2]);
